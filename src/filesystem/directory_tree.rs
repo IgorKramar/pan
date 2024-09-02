@@ -39,6 +39,22 @@ impl DirectoryTree {
     }
 
     fn collect_directory_structure(&self, dir: &str, prefix: &str, output: &mut String, extensions: Option<&Vec<String>>) {
+        let entries = self.get_sorted_entries(dir);
+
+        for (i, entry) in entries.iter().enumerate() {
+            let file_name = entry.file_name().to_string_lossy();
+            let new_prefix = if i == entries.len() - 1 { "└── " } else { "├── " };
+            output.push_str(&format!("{}{}{}\n", prefix, new_prefix, file_name));
+
+            if entry.file_type().is_dir() {
+                self.process_directory(entry, prefix, output, extensions, i == entries.len() - 1);
+            } else if entry.file_type().is_file() {
+                self.process_file(entry, output, extensions);
+            }
+        }
+    }
+
+    fn get_sorted_entries(&self, dir: &str) -> Vec<DirEntry> {
         let mut entries: Vec<DirEntry> = WalkDir::new(dir)
             .min_depth(1)
             .max_depth(1)
@@ -48,28 +64,24 @@ impl DirectoryTree {
             .collect();
 
         entries.sort_by_key(|e| e.file_name().to_owned());
+        entries
+    }
 
-        for (i, entry) in entries.iter().enumerate() {
-            let file_name = entry.file_name().to_string_lossy();
-            let new_prefix = if i == entries.len() - 1 { "└── " } else { "├── " };
-            output.push_str(&format!("{}{}{}\n", prefix, new_prefix, file_name));
+    fn process_directory(&self, entry: &DirEntry, prefix: &str, output: &mut String, extensions: Option<&Vec<String>>, is_last: bool) {
+        let sub_prefix = if is_last {
+            format!("{}    ", prefix)
+        } else {
+            format!("{}│   ", prefix)
+        };
+        self.collect_directory_structure(&entry.path().display().to_string(), &sub_prefix, output, extensions);
+    }
 
-            if entry.file_type().is_dir() {
-                let sub_prefix = if i == entries.len() - 1 {
-                    format!("{}    ", prefix)
-                } else {
-                    format!("{}│   ", prefix)
-                };
-                self.collect_directory_structure(&entry.path().display().to_string(), &sub_prefix, output, extensions);
-            } else if entry.file_type().is_file() {
-                // Если указаны расширения, добавляем содержимое файлов только с нужными расширениями
-                if let Some(exts) = extensions {
-                    if let Some(extension) = Path::new(entry.path()).extension() {
-                        if exts.iter().any(|ext| ext == &extension.to_string_lossy()) {
-                            if let Err(e) = append_file_content(entry.path(), output) {
-                                eprintln!("Error reading file {}: {}", entry.path().display(), e);
-                            }
-                        }
+    fn process_file(&self, entry: &DirEntry, output: &mut String, extensions: Option<&Vec<String>>) {
+        if let Some(exts) = extensions {
+            if let Some(extension) = entry.path().extension() {
+                if exts.iter().any(|ext| ext == &extension.to_string_lossy()) {
+                    if let Err(e) = append_file_content(entry.path(), output) {
+                        eprintln!("Error reading file {}: {}", entry.path().display(), e);
                     }
                 }
             }
