@@ -1,20 +1,24 @@
 use walkdir::{DirEntry, WalkDir};
-use glob::Pattern;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::path::Path;
 use crate::filesystem::file_reader::append_file_content;
 
 pub struct DirectoryTree {
     root: String,
     exclude_paths: Vec<String>,
-    exclude_patterns: Vec<Pattern>,
+    exclude_patterns: GlobSet,
 }
 
 impl DirectoryTree {
     pub fn new(root: String, exclude_paths: Vec<String>, exclude_patterns: Vec<String>) -> Self {
-        let compiled_patterns = exclude_patterns
-            .into_iter()
-            .filter_map(|pattern| Pattern::new(&pattern).ok())
-            .collect();
+        let mut builder = GlobSetBuilder::new();
+        for pattern in exclude_patterns {
+            if let Ok(glob) = Glob::new(&pattern) {
+                builder.add(glob);
+            }
+        }
+        let compiled_patterns = builder.build().expect("Failed to build glob set");
+        
         Self {
             root,
             exclude_paths,
@@ -115,12 +119,8 @@ impl DirectoryTree {
             return true;
         }
 
-        // Проверка по паттернам
-        if self
-            .exclude_patterns
-            .iter()
-            .any(|pattern| pattern.matches(&entry_path))
-        {
+        // Проверка по паттернам с использованием globset
+        if self.exclude_patterns.is_match(&entry_path) {
             return true;
         }
 
