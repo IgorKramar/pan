@@ -39,9 +39,14 @@ pub fn sumcode_command(args: &SumcodeArgs) {
     // Сначала собираем структуру проекта
     tree.collect_structure(&mut output_content);
 
-    // Если указаны расширения, добавляем содержимое файлов после структуры
+    // Если указаны расширения, разбираем их и добавляем содержимое файлов после структуры
     if let Some(ref extensions) = args.with_file_content {
-        tree.collect_file_contents(&mut output_content, extensions);
+        let extensions: Vec<String> = extensions.iter()
+            .flat_map(|ext| ext.split(','))
+            .map(|ext| ext.trim().to_string())
+            .collect();
+
+        tree.collect_file_contents(&mut output_content, &extensions);
     }
 
     // Если указан output, записываем в файл, иначе выводим в консоль
