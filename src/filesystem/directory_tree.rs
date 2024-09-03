@@ -26,23 +26,11 @@ impl DirectoryTree {
         }
     }
 
-    pub fn print_structure(&self) {
-        self.collect_directory_structure(&self.root, "", &mut String::new(), None);
+    pub fn collect(&self, output: &mut String, options: CollectOptions) {
+        self.collect_directory_structure(&self.root, "", output, &options);
     }
 
-    pub fn collect_structure(&self, output: &mut String) {
-        self.collect_directory_structure(&self.root, "", output, None);
-    }
-
-    pub fn collect_structure_with_content(&self, output: &mut String, extensions: &Vec<String>) {
-        self.collect_directory_structure(&self.root, "", output, Some(extensions));
-    }
-
-    pub fn collect_file_contents(&self, output: &mut String, extensions: &Vec<String>) {
-        self.collect_files_with_content(&self.root, output, extensions);
-    }
-
-    fn collect_directory_structure(&self, dir: &str, prefix: &str, output: &mut String, extensions: Option<&Vec<String>>) {
+    fn collect_directory_structure(&self, dir: &str, prefix: &str, output: &mut String, options: &CollectOptions) {
         let entries = self.get_sorted_entries(dir);
 
         for (i, entry) in entries.iter().enumerate() {
@@ -51,9 +39,32 @@ impl DirectoryTree {
             output.push_str(&format!("{}{}{}\n", prefix, new_prefix, file_name));
 
             if entry.file_type().is_dir() {
-                self.process_directory(entry, prefix, output, extensions, i == entries.len() - 1);
+                self.process_directory(entry, prefix, output, options, i == entries.len() - 1);
             } else if entry.file_type().is_file() {
-                self.process_file(entry, output, extensions);
+                self.process_file(entry, output, options);
+            }
+        }
+    }
+
+    fn process_directory(&self, entry: &DirEntry, prefix: &str, output: &mut String, options: &CollectOptions, is_last: bool) {
+        let sub_prefix = if is_last {
+            format!("{}    ", prefix)
+        } else {
+            format!("{}│   ", prefix)
+        };
+        self.collect_directory_structure(&entry.path().display().to_string(), &sub_prefix, output, options);
+    }
+
+    fn process_file(&self, entry: &DirEntry, output: &mut String, options: &CollectOptions) {
+        if let Some(exts) = &options.extensions {
+            if let Some(extension) = entry.path().extension() {
+                if exts.iter().any(|ext| ext == &extension.to_string_lossy()) {
+                    if options.include_content {
+                        if let Err(e) = append_file_content(entry.path(), output) {
+                            eprintln!("Error reading file {}: {}", entry.path().display(), e);
+                        }
+                    }
+                }
             }
         }
     }
@@ -71,59 +82,33 @@ impl DirectoryTree {
         entries
     }
 
-    fn process_directory(&self, entry: &DirEntry, prefix: &str, output: &mut String, extensions: Option<&Vec<String>>, is_last: bool) {
-        let sub_prefix = if is_last {
-            format!("{}    ", prefix)
-        } else {
-            format!("{}│   ", prefix)
-        };
-        self.collect_directory_structure(&entry.path().display().to_string(), &sub_prefix, output, extensions);
-    }
-
-    fn process_file(&self, entry: &DirEntry, output: &mut String, extensions: Option<&Vec<String>>) {
-        if let Some(exts) = extensions {
-            if let Some(extension) = entry.path().extension() {
-                if exts.iter().any(|ext| ext == &extension.to_string_lossy()) {
-                    if let Err(e) = append_file_content(entry.path(), output) {
-                        eprintln!("Error reading file {}: {}", entry.path().display(), e);
-                    }
-                }
-            }
-        }
-    }
-
-    fn collect_files_with_content(&self, dir: &str, output: &mut String, extensions: &Vec<String>) {
-        let entries: Vec<DirEntry> = WalkDir::new(dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|entry| entry.file_type().is_file())
-            .filter(|entry| !self.should_exclude(entry))
-            .collect();
-
-        for entry in entries {
-            if let Some(extension) = Path::new(entry.path()).extension() {
-                if extensions.iter().any(|ext| ext == &extension.to_string_lossy()) {
-                    if let Err(e) = append_file_content(entry.path(), output) {
-                        eprintln!("Error reading file {}: {}", entry.path().display(), e);
-                    }
-                }
-            }
-        }
-    }
-
     fn should_exclude(&self, entry: &DirEntry) -> bool {
         let entry_path = entry.path().to_string_lossy().to_string();
 
-        // Проверка по списку путей исключений
         if self.exclude_paths.iter().any(|exclude| entry_path.contains(exclude)) {
             return true;
         }
 
-        // Проверка по паттернам с использованием globset
         if self.exclude_patterns.is_match(&entry_path) {
             return true;
         }
 
         false
+    }
+}
+
+pub struct CollectOptions {
+    pub include_structure: bool,
+    pub include_content: bool,
+    pub extensions: Option<Vec<String>>,
+}
+
+impl CollectOptions {
+    pub fn new(include_structure: bool, include_content: bool, extensions: Option<Vec<String>>) -> Self {
+        Self {
+            include_structure,
+            include_content,
+            extensions,
+        }
     }
 }
